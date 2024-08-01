@@ -1,4 +1,11 @@
-state("BlackthornprodJam-Win64-Shipping")
+state("BlackthornprodJam-Win64-Shipping", "1.1.2")
+{
+    bool cutscene : 0x48F2120, 0x180, 0x200;
+    uint mapfname : 0x48F2120, 0x18;
+    float timer : 0x48F2120, 0x118, 0x2D4;
+}
+
+state("BlackthornprodJam-Win64-Shipping", "1.1.1")
 {
     bool cutscene : 0x3FFD8F0, 0x188, 0x38, 0x00, 0x30, 0x598;
     uint mapfname : 0x3FFD8F0, 0x18;
@@ -27,12 +34,26 @@ startup
     //  { "None",       -1 },
     //  { "End",        -1 },
     };
+
+    vars.strings_base = 0;
+    vars.use_timer_sum = false;
+    vars.timers = new float[9];
 }
 
 init
 {
     vars.running = false;
     current.map = 99;
+
+    if (modules.First().ModuleMemorySize == 0x4D53000) {
+        version = "1.1.2";
+        vars.strings_base = 0x476E450;
+        vars.use_timer_sum = true;
+    } else if (modules.First().ModuleMemorySize == 0x4403000) {
+        version = "1.1.1";
+        vars.strings_base = 0x3EA41D0;
+        vars.use_timer_sum = false;
+    }
 }
 
 update
@@ -40,7 +61,7 @@ update
     // Get Map
     if (current.mapfname != old.mapfname) {
         IntPtr mapentry = (IntPtr) (memory.ReadValue<ulong>(
-            modules.First().BaseAddress + 0x3EA41D0 +
+            modules.First().BaseAddress + (int) vars.strings_base +
             8 * (int) (current.mapfname >> 16)
         ) + 2 * (current.mapfname & 0xFFFF));
         int maplen = memory.ReadValue<ushort>(mapentry) >> 6;
@@ -51,7 +72,15 @@ update
         } else {
             vars.running = false;
         }
+        if (vars.use_timer_sum && vars.running && current.map == 0) {
+            // reset timers for error prevention
+            for (int i=0; i < 9; ++i)
+                vars.timers[i] = 0.0f;
+        }
     }
+    if (vars.use_timer_sum && vars.running && current.map > 0)
+        vars.timers[current.map - 1] = current.timer;
+    //print(String.Format("{0} {1} {2}", current.cutscene, current.mapfname, current.timer));
 
     return vars.running;
 }
@@ -83,5 +112,12 @@ isLoading
 
 gameTime
 {
-    return TimeSpan.FromSeconds(current.timer);
+    if (vars.use_timer_sum) {
+        float sum = 0.0f;
+        for (int i=0; i < current.map; ++i)
+            sum += vars.timers[i];
+        return TimeSpan.FromSeconds(sum);
+    } else {
+        return TimeSpan.FromSeconds(current.timer);
+    }
 }
